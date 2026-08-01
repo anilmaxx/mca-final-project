@@ -16,6 +16,18 @@ env/
 .env.*
 !.env.example
 
+# Project-specific generated artifacts
+final-project.pptx
+recovered_dashboard_full.txt
+sample.png
+*.pkl
+*.meta.json
+*.histogram_recovered
+pi_benchmark/
+pqcsecure-backend/run_benchmarks_quick.py
+pqcsecure-backend/stego_ai.py
+pqcsecure-backend/tests/test_stego_ai.py
+
 # Node / frontend
 node_modules/
 dist/

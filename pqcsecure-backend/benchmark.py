@@ -261,8 +261,15 @@ def run_stego_benchmark(payload_bytes_len=1024):
         
         # Stego LSB embedding
         try:
+            t_emb = time.perf_counter()
             stego_img = steganography.embed(cover_img, payload)
-            psnr, ssim = steganography.calculate_image_metrics(cover_img, stego_img)
+            embed_time = (time.perf_counter() - t_emb) * 1000
+
+            t_ext = time.perf_counter()
+            extracted = steganography.extract(stego_img, payload_bytes_len)
+            extract_time = (time.perf_counter() - t_ext) * 1000
+
+            mse, psnr, ssim = steganography.calculate_image_metrics(cover_img, stego_img)
             bpp = (payload_bytes_len * 8) / (res * res)
             
             # Simulated attacks and robustness checking
@@ -309,9 +316,12 @@ def run_stego_benchmark(payload_bytes_len=1024):
                 "resolution": f"{res}x{res}",
                 "style": style,
                 "format": fmt,
+                "mse": float(mse),
                 "psnr": float(psnr),
                 "ssim": float(ssim),
                 "bpp": float(bpp),
+                "embed_time_ms": float(embed_time),
+                "extract_time_ms": float(extract_time),
                 "recovery_raw": bool(recovery_png),
                 "recovery_jpeg_95": bool(recovery_jpeg_95),
                 "recovery_jpeg_75": bool(recovery_jpeg_75),
@@ -326,9 +336,12 @@ def run_stego_benchmark(payload_bytes_len=1024):
                 "style": style,
                 "format": fmt,
                 "error": str(e),
+                "mse": 0.0,
                 "psnr": 0,
                 "ssim": 0,
                 "bpp": 0,
+                "embed_time_ms": 0.0,
+                "extract_time_ms": 0.0,
                 "recovery_raw": False,
                 "recovery_jpeg_95": False,
                 "recovery_jpeg_75": False,
@@ -336,6 +349,44 @@ def run_stego_benchmark(payload_bytes_len=1024):
             })
             
     return results
+
+def run_isolated_stego_benchmark(res=512, payload_size=1024):
+    """Isolates the exact time taken purely by the LSB embedding and extraction, plus quality metrics."""
+    # 1. Create a dummy image
+    img_arr = np.zeros((res, res, 3), dtype=np.uint8)
+    for y in range(res):
+        img_arr[y, :, 0] = int(255 * (y / res))
+        img_arr[y, :, 1] = int(255 * (1 - y / res))
+        img_arr[y, :, 2] = int(128 * (y / res))
+    cover_img = Image.fromarray(img_arr, mode="RGB")
+    
+    # 2. Create dummy payload
+    payload = get_random_bytes(payload_size)
+    
+    # 3. Benchmark Embed
+    t0 = time.perf_counter()
+    stego_img = steganography.embed(cover_img, payload)
+    embed_time = (time.perf_counter() - t0) * 1000
+    
+    # 4. Benchmark Extract
+    t0 = time.perf_counter()
+    extracted = steganography.extract(stego_img, payload_size)
+    extract_time = (time.perf_counter() - t0) * 1000
+    
+    # 5. Quality Metrics (MSE, PSNR & SSIM)
+    mse, psnr, ssim = steganography.calculate_image_metrics(cover_img, stego_img)
+    bpp = (payload_size * 8) / (res * res)
+    
+    return {
+        "embed_time_ms": float(embed_time),
+        "extract_time_ms": float(extract_time),
+        "mse": float(mse),
+        "psnr": float(psnr),
+        "ssim": float(ssim),
+        "bpp": float(bpp),
+        "resolution": f"{res}x{res}",
+        "payload_size_bytes": payload_size
+    }
 
 def run_end_to_end_benchmark():
     """

@@ -12,21 +12,79 @@ from PIL import Image
 import skimage.metrics
 
 
+# ─── Adaptive Steganography Helper ──────────────────────────────────────────
+
+def get_adaptive_pixel_indices(arr: np.ndarray, bit_depth: int) -> list[int]:
+    """
+    Sort 32x32 image blocks by Laplacian variance (texture density) descending,
+    and return the flat channel indices in that sorted order.
+    The variance is calculated after clearing the payload bits (LSBs) to ensure
+    the block ordering is identical for both cover and stego images.
+    """
+    h, w, c = arr.shape
+    block_size = 32
+    blocks_y = h // block_size
+    blocks_x = w // block_size
+
+    # Clear payload bits to make variance calculation independent of the payload
+    mask_val = (1 << bit_depth) - 1
+    arr_clean = arr & (255 - mask_val)
+
+    # Convert to grayscale using luminance formula
+    r, g, b = arr_clean[:, :, 0], arr_clean[:, :, 1], arr_clean[:, :, 2]
+    gray_arr = (0.299 * r + 0.587 * g + 0.114 * b).astype(np.int16)
+
+    block_scores = []
+    for y in range(blocks_y):
+        for x in range(blocks_x):
+            ys = y * block_size
+            ye = ys + block_size
+            xs = x * block_size
+            xe = xs + block_size
+
+            block_gray = gray_arr[ys:ye, xs:xe]
+
+            if block_gray.shape[0] > 2 and block_gray.shape[1] > 2:
+                local_lap = (
+                    block_gray[1:-1, 1:-1] * 4
+                    - block_gray[:-2, 1:-1]
+                    - block_gray[2:, 1:-1]
+                    - block_gray[1:-1, :-2]
+                    - block_gray[1:-1, 2:]
+                )
+                local_var = float(np.var(local_lap))
+            else:
+                local_var = 0.0
+
+            block_scores.append((local_var, y, x))
+
+    # Sort blocks by texture complexity descending
+    block_scores.sort(key=lambda item: item[0], reverse=True)
+
+    # Collect flat channel indices for the sorted blocks
+    indices = []
+    for _, by, bx in block_scores:
+        ys = by * block_size
+        ye = ys + block_size
+        xs = bx * block_size
+        xe = xs + block_size
+
+        for r in range(ys, ye):
+            row_offset = r * w * 3
+            for col in range(xs, xe):
+                pixel_offset = row_offset + col * 3
+                for ch in range(3):
+                    indices.append(pixel_offset + ch)
+
+    return indices
+
+
 # ─── Embed ────────────────────────────────────────────────────────────────────
 
 def embed(image: Image.Image, payload: bytes, bit_depth: int = 1) -> Image.Image:
     """
     Embed *payload* bytes into *image* using `bit_depth` LSBs per channel.
-
-    Parameters
-    ----------
-    image     : PIL Image
-    payload   : bytes to hide
-    bit_depth : int (1, 2, or 3)
-
-    Returns
-    -------
-    PIL Image with payload hidden in pixel LSBs (PNG-safe, lossless)
+    Fills pixels in high-texture complexity blocks first.
     """
     if bit_depth not in (1, 2, 3):
         raise ValueError("Bit depth must be 1, 2, or 3.")
@@ -34,12 +92,13 @@ def embed(image: Image.Image, payload: bytes, bit_depth: int = 1) -> Image.Image
     img = image.convert("RGB")
     arr = np.array(img, dtype=np.uint8)
 
-    capacity_bits = arr.size * bit_depth
+    indices = get_adaptive_pixel_indices(arr, bit_depth)
+    capacity_bits = len(indices) * bit_depth
     required_bits = len(payload) * 8
 
     if required_bits > capacity_bits:
         raise ValueError(
-            f"Image capacity {capacity_bits} bits is smaller than "
+            f"Adaptive capacity {capacity_bits} bits is smaller than "
             f"payload {required_bits} bits at depth {bit_depth}. Use a larger image or increase depth."
         )
 
@@ -56,7 +115,7 @@ def embed(image: Image.Image, payload: bytes, bit_depth: int = 1) -> Image.Image
     inv_mask = ~mask & 0xFF
     
     bit_pos = 0
-    pixel_idx = 0
+    idx = 0
     
     while bit_pos < num_bits:
         chunk_size = min(bit_depth, num_bits - bit_pos)
@@ -68,9 +127,10 @@ def embed(image: Image.Image, payload: bytes, bit_depth: int = 1) -> Image.Image
             # Pad with 0s if chunk is incomplete
             val = val << (bit_depth - chunk_size)
             
+        pixel_idx = indices[idx]
         flat[pixel_idx] = (flat[pixel_idx] & inv_mask) | val
         bit_pos += chunk_size
-        pixel_idx += 1
+        idx += 1
         
     stego_arr = flat.reshape(arr.shape)
     return Image.fromarray(stego_arr, mode="RGB")
@@ -80,17 +140,8 @@ def embed(image: Image.Image, payload: bytes, bit_depth: int = 1) -> Image.Image
 
 def extract(image: Image.Image, num_bytes: int, bit_depth: int = 1) -> bytes:
     """
-    Extract *num_bytes* bytes from the LSBs of *image* with `bit_depth` bits per channel.
-
-    Parameters
-    ----------
-    image     : PIL Image containing a hidden payload
-    num_bytes : exact number of bytes to extract
-    bit_depth : int (1, 2, or 3)
-
-    Returns
-    -------
-    bytes of length *num_bytes*
+    Extract *num_bytes* bytes from the LSBs of *image* with `bit_depth` bits per channel
+    using the adaptive block ordering map.
     """
     if bit_depth not in (1, 2, 3):
         raise ValueError("Bit depth must be 1, 2, or 3.")
@@ -99,20 +150,27 @@ def extract(image: Image.Image, num_bytes: int, bit_depth: int = 1) -> bytes:
     arr = np.array(img, dtype=np.uint8)
     flat = arr.flatten()
 
+    indices = get_adaptive_pixel_indices(arr, bit_depth)
     required_bits = num_bytes * 8
+    max_bits = len(indices) * bit_depth
+    if required_bits > max_bits:
+        raise ValueError(
+            f"Required bits ({required_bits}) exceeds maximum image capacity ({max_bits})."
+        )
     
     mask = (1 << bit_depth) - 1
     
     bit_list = []
-    pixel_idx = 0
+    idx = 0
     
     while len(bit_list) < required_bits:
+        pixel_idx = indices[idx]
         val = flat[pixel_idx] & mask
         # Extract bit_depth bits, MSB first
         for b in range(bit_depth - 1, -1, -1):
             bit = (val >> b) & 1
             bit_list.append(bit)
-        pixel_idx += 1
+        idx += 1
         
     # Trim to exactly required_bits
     bit_list = bit_list[:required_bits]
@@ -135,17 +193,24 @@ def max_payload_bytes(image: Image.Image, bit_depth: int = 1) -> int:
     """Return the maximum number of bytes that can be hidden in *image* at the specified bit depth."""
     img = image.convert("RGB")
     arr = np.array(img)
-    return (arr.size * bit_depth) // 8
+    indices = get_adaptive_pixel_indices(arr, bit_depth)
+    return (len(indices) * bit_depth) // 8
 
 
-def calculate_image_metrics(cover_img: Image.Image, stego_img: Image.Image) -> tuple[float, float]:
-    """Calculate PSNR and SSIM between the cover and stego images, protecting against infinite values."""
+def calculate_image_metrics(cover_img: Image.Image, stego_img: Image.Image) -> tuple[float, float, float]:
+    """Calculate MSE, PSNR and SSIM between the cover and stego images, protecting against infinite values."""
     cover_arr = np.array(cover_img.convert("RGB"))
     stego_arr = np.array(stego_img.convert("RGB"))
     
+    # Calculate MSE
+    try:
+        mse = float(np.mean((cover_arr.astype(np.float64) - stego_arr.astype(np.float64)) ** 2))
+    except Exception:
+        mse = 0.0
+
     # If they are exactly identical (e.g. clean cover and no payload changed, or perfect match)
     if np.array_equal(cover_arr, stego_arr):
-        return 999.0, 1.0
+        return 0.0, 999.0, 1.0
         
     try:
         psnr = float(skimage.metrics.peak_signal_noise_ratio(cover_arr, stego_arr))
@@ -161,7 +226,7 @@ def calculate_image_metrics(cover_img: Image.Image, stego_img: Image.Image) -> t
     except Exception:
         ssim = 1.0
         
-    return psnr, ssim
+    return mse, psnr, ssim
 
 
 def calculate_chi_square_detector(image: Image.Image) -> float:
@@ -209,3 +274,11 @@ def calculate_chi_square_detector(image: Image.Image) -> float:
         return float(max(0.0, min(1.0, stego_prob)))
     except Exception:
         return 0.0
+
+
+def get_grayscale_histogram(image: Image.Image) -> list[int]:
+    """Calculate the 256-bin grayscale intensity histogram of the image."""
+    arr = np.array(image.convert("L")).flatten()
+    counts, _ = np.histogram(arr, bins=256, range=(0, 256))
+    return counts.tolist()
+

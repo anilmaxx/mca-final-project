@@ -29,6 +29,7 @@ import numpy as np
 import crypto
 import steganography
 import benchmark
+import stego_ai
 
 
 def _load_env_file() -> None:
@@ -56,11 +57,12 @@ def _parse_origins(raw_value: str) -> list[str]:
     return [item.strip() for item in raw_value.split(",") if item.strip()]
 
 # ─── App Setup ────────────────────────────────────────────────────────────────
-app = Flask(__name__)
+frontend_dist = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'pqcsecure-frontend', 'dist'))
+app = Flask(__name__, static_folder=frontend_dist, static_url_path="")
 app.secret_key = os.getenv("SECRET_KEY", "change-me-in-production")
 app.config["JSON_SORT_KEYS"] = False
 
-allowed_origins = _parse_origins(os.getenv("CORS_ORIGINS", "http://localhost:3000"))
+allowed_origins = _parse_origins(os.getenv("CORS_ORIGINS", "*"))
 CORS(app, resources={r"/api/*": {"origins": allowed_origins}})
 
 logging.basicConfig(
@@ -68,6 +70,9 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+# Initialize local AI Stego models
+stego_ai.init_model()
 
 # ─── In-memory key store ──────────────────────────────────────────────────────
 _key_store: dict = {}
@@ -238,11 +243,15 @@ def encrypt_embed():
             }), 400
 
         stego_img = steganography.embed(cover_img, payload, bit_depth)
-        psnr, ssim = steganography.calculate_image_metrics(cover_img, stego_img)
+        mse, psnr, ssim = steganography.calculate_image_metrics(cover_img, stego_img)
 
         # Calculate Chi-Square steganalysis detector probabilities
         cover_chi_prob = steganography.calculate_chi_square_detector(cover_img)
         stego_chi_prob = steganography.calculate_chi_square_detector(stego_img)
+
+        # Grayscale histograms
+        cover_hist = steganography.get_grayscale_histogram(cover_img)
+        stego_hist = steganography.get_grayscale_histogram(stego_img)
 
         # Generate Difference Map (100x absolute differences)
         cover_arr = np.array(cover_img.convert("RGB"), dtype=np.int16)
@@ -274,8 +283,11 @@ def encrypt_embed():
             "aes_enc_time_ms":     round(aes_enc_time_ms, 3),
             "psnr":                round(psnr, 2),
             "ssim":                round(ssim, 2),
+            "mse":                 round(mse, 6),
             "cover_chi_prob":      round(cover_chi_prob, 4),
             "stego_chi_prob":      round(stego_chi_prob, 4),
+            "cover_hist":          cover_hist,
+            "stego_hist":          stego_hist,
         })
 
     except Exception as exc:
@@ -314,6 +326,9 @@ def extract_decrypt():
         # LSB Extraction
         stego_img = Image.open(stego_file)
 
+        # Calculate Chi-Square steganalysis detector probabilities
+        stego_chi_prob = steganography.calculate_chi_square_detector(stego_img)
+
         # Handle tamper mode: flip stego pixel
         if tamper_mode == "flip_pixel":
             stego_arr = np.array(stego_img.convert("RGB"))
@@ -326,12 +341,19 @@ def extract_decrypt():
 
         # Read header first
         t_start_extract = time.perf_counter()
-        header_bytes = steganography.extract(stego_img, crypto.header_size(), bit_depth)
-        kem_ct_len, enc_msg_len, iv_len, tag_len = struct.unpack(">IIBB", header_bytes)
-        
-        # Calculate full payload size
-        total_payload = crypto.header_size() + kem_ct_len + iv_len + tag_len + enc_msg_len
-        payload = steganography.extract(stego_img, total_payload, bit_depth)
+        try:
+            header_bytes = steganography.extract(stego_img, crypto.header_size(), bit_depth)
+            kem_ct_len, enc_msg_len, iv_len, tag_len = struct.unpack(">IIBB", header_bytes)
+            
+            # Calculate full payload size
+            total_payload = crypto.header_size() + kem_ct_len + iv_len + tag_len + enc_msg_len
+            payload = steganography.extract(stego_img, total_payload, bit_depth)
+        except (ValueError, struct.error) as err:
+            logger.warning("LSB extraction failed: %s", err)
+            return jsonify({
+                "error": "Extraction failed: Invalid or corrupt steganography payload/header."
+            }), 400
+            
         extract_time_ms = (time.perf_counter() - t_start_extract) * 1000
 
         # Parse payload components
@@ -359,6 +381,7 @@ def extract_decrypt():
                     "extraction_time_ms": round(extract_time_ms, 3),
                     "decaps_time_ms":     round(decaps_time_ms, 3),
                     "aes_dec_time_ms":    0.0,
+                    "stego_chi_prob":     round(stego_chi_prob, 4),
                 }), 400
             else:
                 return jsonify({
@@ -368,6 +391,7 @@ def extract_decrypt():
                     "extraction_time_ms": round(extract_time_ms, 3),
                     "decaps_time_ms":     round(decaps_time_ms, 3),
                     "aes_dec_time_ms":    0.0,
+                    "stego_chi_prob":     round(stego_chi_prob, 4),
                 }), 400
 
         # Symmetric Decryption
@@ -380,10 +404,11 @@ def extract_decrypt():
                 "message":            plaintext.decode("utf-8", errors="replace"),
                 "integrity_verified": True if symmetric_mode == "AES-256-GCM" else False,
                 "extraction_success": True,
-                "algorithm":          f"{kem_algo} + {symmetric_mode} + LSB (Depth {bit_depth})",
+                "algorithm":          f"{kem_algo} + {symmetric_mode} + Adaptive LSB (Depth {bit_depth})",
                 "extraction_time_ms": round(extract_time_ms, 3),
                 "decaps_time_ms":     round(decaps_time_ms, 3),
                 "aes_dec_time_ms":    round(aes_dec_time_ms, 3),
+                "stego_chi_prob":     round(stego_chi_prob, 4),
             })
         except Exception as exc:
             aes_dec_time_ms = (time.perf_counter() - t1) * 1000
@@ -401,6 +426,7 @@ def extract_decrypt():
                 "extraction_time_ms": round(extract_time_ms, 3),
                 "decaps_time_ms":     round(decaps_time_ms, 3),
                 "aes_dec_time_ms":    round(aes_dec_time_ms, 3),
+                "stego_chi_prob":     round(stego_chi_prob, 4),
             }), 400
 
     except Exception as exc:
@@ -446,22 +472,75 @@ def sample_cover():
         logger.exception("Failed to generate sample cover image")
         return jsonify({"error": str(exc)}), 500
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# AI OPTIMIZER AND STEGO DETECTOR ENDPOINTS
+# ═══════════════════════════════════════════════════════════════════════════════
+@app.route("/api/ai-optimize", methods=["POST"])
+def ai_optimize():
+    """Analyze cover image texture and suggest parameters and high-frequency regions."""
+    try:
+        image_file = request.files.get("image")
+        if not image_file:
+            return jsonify({"error": "No image file provided."}), 400
+            
+        cover_img = Image.open(image_file)
+        analysis = stego_ai.analyze_cover_image(cover_img)
+        return jsonify(analysis)
+    except Exception as exc:
+        logger.exception("AI Optimize failed")
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/ai-detect", methods=["POST"])
+def ai_detect():
+    """Predict the probability of a hidden stego payload in an uploaded image."""
+    try:
+        image_file = request.files.get("image")
+        if not image_file:
+            return jsonify({"error": "No image file provided."}), 400
+            
+        img = Image.open(image_file)
+        prob = stego_ai.predict_stego(img)
+        features = stego_ai.extract_stego_features(img)
+        
+        # Format features for response display
+        feature_names = [
+            "Unique Color Ratio", 
+            "Chi-Square Probability", 
+            "Parity Bin Asymmetry", 
+            "Horizontal Difference Mean", 
+            "Horizontal Difference Variance", 
+            "Laplacian Variance (Sharpness)"
+        ]
+        feature_dict = {name: round(val, 5) for name, val in zip(feature_names, features)}
+        
+        return jsonify({
+            "stego_probability": round(prob, 4),
+            "is_stego": bool(prob > 0.5),
+            "features": feature_dict
+        })
+    except Exception as exc:
+        logger.exception("AI Detect failed")
+        return jsonify({"error": str(exc)}), 500
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Health Check
 # ═══════════════════════════════════════════════════════════════════════════════
 @app.route("/", methods=["GET"])
 def index():
-    return jsonify({
-        "message": "PQCSecure API is running. Send requests to /api/..."
-    })
+    return app.send_static_file('index.html')
+
+@app.errorhandler(404)
+def not_found(e):
+    return app.send_static_file('index.html')
 
 @app.route("/api/health", methods=["GET"])
 def health():
     return jsonify({
         "status":     "ok",
         "algorithms": ["ML-KEM-768 (FIPS 203)", "RSA-2048", "X25519", "AES-256-GCM", "AES-256-CBC", "LSB Steganography"],
-        "endpoints":  ["/api/keygen", "/api/encrypt-embed", "/api/extract-decrypt", "/api/sample-cover", "/api/benchmark"],
+        "endpoints":  ["/api/keygen", "/api/encrypt-embed", "/api/extract-decrypt", "/api/sample-cover", "/api/benchmark", "/api/ai-optimize", "/api/ai-detect"],
     })
 
 @app.route("/api/benchmark", methods=["GET"])
@@ -474,6 +553,7 @@ def run_benchmark():
         kem_results = benchmark.run_kem_benchmark(iterations=iterations)
         sym_results = benchmark.run_symmetric_benchmark()
         stego_results = benchmark.run_stego_benchmark()
+        isolated_stego = benchmark.run_isolated_stego_benchmark(res=512, payload_size=1024)
         e2e_results = benchmark.run_end_to_end_benchmark()
         total_time = time.perf_counter() - t_start
         
@@ -483,6 +563,7 @@ def run_benchmark():
             "kem": kem_results,
             "symmetric": sym_results,
             "stego": stego_results,
+            "isolated_stego": isolated_stego,
             "e2e": e2e_results
         })
     except Exception as exc:
