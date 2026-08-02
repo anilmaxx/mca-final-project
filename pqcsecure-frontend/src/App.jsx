@@ -385,9 +385,6 @@ function AcademicStegoHistogramChart({ coverHist, stegoHist, bitDepth = 1 }) {
   );
 }
 
-function Benchmarks({ API, safeJsonResponse }) {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
 // ─── Hover Magnifier Component ──────────────────────────────────────────────
 function HoverMagnifier({ src, alt, style = {}, zoomLevel = 8, magnifierSize = 130 }) {
   const [showMagnifier, setShowMagnifier] = useState(false);
@@ -407,7 +404,6 @@ function HoverMagnifier({ src, alt, style = {}, zoomLevel = 8, magnifierSize = 1
     const xCoord = e.clientX - left;
     const yCoord = e.clientY - top;
 
-    // Bounds check
     if (xCoord < 0 || yCoord < 0 || xCoord > width || yCoord > height) {
       setShowMagnifier(false);
     } else {
@@ -469,6 +465,7 @@ function HoverMagnifier({ src, alt, style = {}, zoomLevel = 8, magnifierSize = 1
     </div>
   );
 }
+
 // ─── Steganography Histogram Component ───────────────────────────────────────
 function StegoHistogramChart({ coverHist, stegoHist }) {
   const [hoverIndex, setHoverIndex] = useState(null);
@@ -658,6 +655,10 @@ function StegoHistogramChart({ coverHist, stegoHist }) {
     </div>
   );
 }
+
+function Benchmarks({ API, safeJsonResponse }) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
   const [data, setData] = useState(null);
   const [iterations, setIterations] = useState(100);
 
