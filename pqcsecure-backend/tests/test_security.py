@@ -36,6 +36,26 @@ def test_private_key_not_exposed_by_default(monkeypatch):
     assert payload["private_key_pem"] is None
 
 
+def test_api_allows_preflight_requests_from_react_frontend(monkeypatch):
+    monkeypatch.delenv("API_KEY", raising=False)
+    monkeypatch.delenv("REQUIRE_HTTPS", raising=False)
+    import app as backend_app
+    importlib.reload(backend_app)
+
+    client = backend_app.app.test_client()
+    response = client.options(
+        "/api/keygen",
+        headers={
+            "Origin": "http://localhost:3000",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers.get("Access-Control-Allow-Origin") == "http://localhost:3000"
+
+
 def test_end_to_end_encrypt_embed_and_extract_decrypt(monkeypatch):
     monkeypatch.delenv("API_KEY", raising=False)
     monkeypatch.setenv("EXPOSE_PRIVATE_KEY", "false")

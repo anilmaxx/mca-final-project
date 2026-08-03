@@ -59,6 +59,12 @@ def test_ai_detect_endpoint_returns_all_named_features():
     payload = response.get_json()
     assert set(payload["features"].keys()) == set(stego_ai.FEATURE_NAMES)
     assert len(payload["features"]) == len(stego_ai.FEATURE_NAMES)
+    assert "explanation" in payload
+    assert "metrics" in payload
+    assert "confidence" in payload
+    assert isinstance(payload["explanation"], list)
+    assert payload["metrics"]["precision"] >= 0.0
+    assert payload["metrics"]["recall"] >= 0.0
 
 
 def test_ai_train_endpoint_returns_training_summary():
@@ -76,3 +82,17 @@ def test_ai_train_endpoint_returns_training_summary():
     assert payload["force_retrained"] is True
     assert "best_params" in payload
     assert "model_path" in payload
+    assert "evaluation_metrics" in payload
+
+
+def test_ai_detect_rejects_oversized_uploads():
+    client = app.test_client()
+
+    oversized = b"a" * (6 * 1024 * 1024)
+    response = client.post(
+        "/api/ai-detect",
+        data={"image": (io.BytesIO(oversized), "large.png")},
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 413

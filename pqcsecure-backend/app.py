@@ -19,6 +19,8 @@ import base64
 import logging
 import time
 from pathlib import Path
+from werkzeug.exceptions import RequestEntityTooLarge
+from werkzeug.utils import secure_filename
 
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
@@ -54,6 +56,8 @@ def _env_flag(name: str, default: str = "false") -> bool:
 
 
 def _parse_origins(raw_value: str) -> list[str]:
+    if not raw_value or raw_value.strip() == "*":
+        return ["*"]
     return [item.strip() for item in raw_value.split(",") if item.strip()]
 
 
@@ -73,9 +77,30 @@ frontend_dist = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'p
 app = Flask(__name__, static_folder=frontend_dist, static_url_path="")
 app.secret_key = os.getenv("SECRET_KEY", "change-me-in-production")
 app.config["JSON_SORT_KEYS"] = False
+app.config["MAX_CONTENT_LENGTH"] = int(os.getenv("MAX_UPLOAD_BYTES", str(5 * 1024 * 1024)))
+app.config["PROPAGATE_EXCEPTIONS"] = True
 
-allowed_origins = _parse_origins(os.getenv("CORS_ORIGINS", "*"))
-CORS(app, resources={r"/api/*": {"origins": allowed_origins}})
+default_origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+allowed_origins = _parse_origins(os.getenv("CORS_ORIGINS", ",".join(default_origins)))
+CORS(
+    app,
+    resources={r"/api/*": {"origins": allowed_origins, "supports_credentials": False}},
+    methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "X-API-Key"],
+)
+
+@app.errorhandler(RequestEntityTooLarge)
+def request_too_large(_):
+    return jsonify({"error": "Upload too large."}), 413
+
+@app.errorhandler(400)
+def bad_request(_):
+    return jsonify({"error": "Bad request."}), 400
 
 logging.basicConfig(
     level=logging.INFO,
@@ -524,23 +549,37 @@ def ai_detect():
     """Predict the probability of a hidden stego payload in an uploaded image."""
     try:
         image_file = request.files.get("image")
+    except RequestEntityTooLarge:
+        return jsonify({"error": "Upload too large."}), 413
+
+    try:
         if not image_file:
             return jsonify({"error": "No image file provided."}), 400
-            
+
+        filename = secure_filename(image_file.filename or "")
+        if not filename.lower().endswith((".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff")):
+            return jsonify({"error": "Unsupported image type. Use PNG, JPG, JPEG, BMP, TIFF."}), 400
+
         img = Image.open(image_file)
+        img = img.convert("RGB")
         prob = stego_ai.predict_stego(img)
         features = stego_ai.extract_stego_features(img)
-        
-        # Format features for response display.
+
         feature_dict = {
             name: round(value, 5)
             for name, value in zip(stego_ai.FEATURE_NAMES, features)
         }
-        
+        metrics = stego_ai.get_detection_metrics()
+        explanation = stego_ai.build_detection_explanation(features, prob)
+
         return jsonify({
             "stego_probability": round(prob, 4),
             "is_stego": bool(prob > 0.5),
-            "features": feature_dict
+            "confidence": "high" if prob >= 0.75 else "medium" if prob >= 0.5 else "low",
+            "features": feature_dict,
+            "metrics": metrics,
+            "explanation": explanation,
+            "filename": filename,
         })
     except Exception as exc:
         logger.exception("AI Detect failed")
@@ -553,11 +592,15 @@ def ai_compare():
     try:
         cover_file = request.files.get("cover_image")
         stego_file = request.files.get("stego_image")
+    except RequestEntityTooLarge:
+        return jsonify({"error": "Upload too large."}), 413
+
+    try:
         if not cover_file or not stego_file:
             return jsonify({"error": "Both cover_image and stego_image are required."}), 400
 
-        cover_img = Image.open(cover_file)
-        stego_img = Image.open(stego_file)
+        cover_img = Image.open(cover_file).convert("RGB")
+        stego_img = Image.open(stego_file).convert("RGB")
 
         cover_prob = stego_ai.predict_stego(cover_img)
         stego_prob = stego_ai.predict_stego(stego_img)
@@ -565,18 +608,28 @@ def ai_compare():
         cover_features = stego_ai.extract_stego_features(cover_img)
         stego_features = stego_ai.extract_stego_features(stego_img)
 
+        # Convert features to JSON-serializable rounded maps
+        cover_feature_map = {
+            name: round(float(value), 5)
+            for name, value in zip(stego_ai.FEATURE_NAMES, cover_features)
+        }
+        stego_feature_map = {
+            name: round(float(value), 5)
+            for name, value in zip(stego_ai.FEATURE_NAMES, stego_features)
+        }
+
         difference = round(max(0.0, stego_prob - cover_prob), 4)
 
         return jsonify({
             "cover": {
                 "stego_probability": round(cover_prob, 4),
                 "is_stego": bool(cover_prob > 0.5),
-                "features": cover_features,
+                "features": cover_feature_map,
             },
             "stego": {
                 "stego_probability": round(stego_prob, 4),
                 "is_stego": bool(stego_prob > 0.5),
-                "features": stego_features,
+                "features": stego_feature_map,
             },
             "comparison": {
                 "difference": difference,
@@ -594,13 +647,18 @@ def ai_train():
     try:
         force = request.form.get("force", "false").strip().lower() in {"1", "true", "yes", "on"}
         stego_ai.init_model(force_train=force)
-        X, y = stego_ai._generate_synthetic_dataset()
+        X, y = stego_ai.build_realistic_dataset()
         best_params = stego_ai.optimize_model_parameters(X, y)
+        metrics = stego_ai.get_detection_metrics()
         return jsonify({
             "status": "trained",
             "force_retrained": force,
             "best_params": best_params,
             "model_path": stego_ai.MODEL_PATH,
+            "evaluation_metrics": metrics,
+            "dataset_size": len(X),
+            "positive_samples": int(sum(1 for label in y if label == 1)),
+            "negative_samples": int(sum(1 for label in y if label == 0)),
         })
     except Exception as exc:
         logger.exception("AI Train failed")

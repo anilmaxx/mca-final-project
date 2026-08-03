@@ -664,6 +664,8 @@ function ImageComparePanel({ API, safeJsonResponse }) {
   const [result, setResult] = useState(null);
   const [trainStatus, setTrainStatus] = useState(null);
   const [training, setTraining] = useState(false);
+  const [coverPreview, setCoverPreview] = useState(null);
+  const [stegoPreview, setStegoPreview] = useState(null);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -695,6 +697,34 @@ function ImageComparePanel({ API, safeJsonResponse }) {
     }
   }
 
+  function handleCoverChange(e) {
+    const file = e.target.files?.[0] || null;
+    setCoverFile(file);
+    if (file) {
+      const url = URL.createObjectURL(file);
+      setCoverPreview(url);
+    } else {
+      setCoverPreview(null);
+    }
+  }
+
+  function handleStegoChange(e) {
+    const file = e.target.files?.[0] || null;
+    setStegoFile(file);
+    if (file) {
+      const url = URL.createObjectURL(file);
+      setStegoPreview(url);
+    } else {
+      setStegoPreview(null);
+    }
+  }
+
+  function getRiskLevel(probability) {
+    if (probability >= 0.75) return { label: "High risk", color: "#ff6b6b" };
+    if (probability >= 0.5) return { label: "Medium risk", color: "#ffb84d" };
+    return { label: "Low risk", color: "#4ade80" };
+  }
+
   async function handleTrain() {
     setTraining(true);
     setTrainStatus(null);
@@ -723,8 +753,8 @@ function ImageComparePanel({ API, safeJsonResponse }) {
         🧪 Upload Cover + Stego Images for AI Comparison and Training
       </div>
       <form onSubmit={handleSubmit} style={{ display: "grid", gap: 10 }}>
-        <input type="file" accept="image/*" onChange={(e) => setCoverFile(e.target.files?.[0] || null)} />
-        <input type="file" accept="image/*" onChange={(e) => setStegoFile(e.target.files?.[0] || null)} />
+        <input type="file" accept="image/*" onChange={handleCoverChange} />
+        <input type="file" accept="image/*" onChange={handleStegoChange} />
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button type="submit" disabled={loading} style={{ padding: "8px 12px", borderRadius: 6, background: "#00c8dc", color: "#07111f", fontWeight: 700 }}>
             {loading ? "Checking..." : "Check Images"}
@@ -736,21 +766,46 @@ function ImageComparePanel({ API, safeJsonResponse }) {
       </form>
       {error && <div style={{ color: "#ff8c8c", marginTop: 8 }}>{error}</div>}
       {trainStatus && (
-        <div style={{ marginTop: 10, color: "#d7f7ff" }}>
-          <strong>Optimizer trained:</strong> {JSON.stringify(trainStatus.best_params)}
+        <div style={{ marginTop: 10, color: "#d7f7ff", display: "grid", gap: 6 }}>
+          <div><strong>Optimizer trained:</strong> {JSON.stringify(trainStatus.best_params)}</div>
+          <div><strong>Dataset size:</strong> {trainStatus.dataset_size || "n/a"} samples</div>
+          <div><strong>Positive / negative:</strong> {trainStatus.positive_samples || 0} / {trainStatus.negative_samples || 0}</div>
+          {trainStatus.evaluation_metrics && (
+            <div>
+              <strong>Metrics:</strong> precision {trainStatus.evaluation_metrics.precision?.toFixed(2)} • recall {trainStatus.evaluation_metrics.recall?.toFixed(2)} • ROC-AUC {trainStatus.evaluation_metrics.roc_auc?.toFixed(2)}
+            </div>
+          )}
         </div>
       )}
       {result && (
-        <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
-          <div style={{ color: "#d7f7ff" }}>
-            <strong>Cover probability:</strong> {result.cover.stego_probability} ({result.cover.is_stego ? "stego-like" : "clean-like"})
+        <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {[
+              { label: "Cover", probability: result.cover.stego_probability, risk: getRiskLevel(result.cover.stego_probability), color: "#4ade80" },
+              { label: "Stego", probability: result.stego.stego_probability, risk: getRiskLevel(result.stego.stego_probability), color: "#ff6b6b" },
+            ].map((item) => (
+              <div key={item.label} style={{ flex: 1, minWidth: 140, background: "rgba(255,255,255,0.06)", borderRadius: 8, padding: 8 }}>
+                <div style={{ color: "#d7f7ff", fontSize: 11, fontWeight: 700 }}>{item.label}</div>
+                <div style={{ color: item.color, fontSize: 12, marginTop: 4 }}>{(item.probability * 100).toFixed(0)}% confidence</div>
+                <div style={{ color: item.risk.color, fontSize: 10, marginTop: 4, fontWeight: 700 }}>{item.risk.label}</div>
+              </div>
+            ))}
           </div>
-          <div style={{ color: "#d7f7ff" }}>
-            <strong>Stego probability:</strong> {result.stego.stego_probability} ({result.stego.is_stego ? "stego-like" : "clean-like"})
-          </div>
+
           <div style={{ color: "#00dc8c" }}>
             <strong>Comparison verdict:</strong> {result.comparison.verdict} (difference {result.comparison.difference})
           </div>
+
+          <div style={{ color: "#ffffff70", fontSize: 10 }}>
+            <strong>Why this matters:</strong> Higher probability and larger cover-to-stego gap suggest stronger evidence of embedded content.
+          </div>
+
+          {(coverPreview || stegoPreview) && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              {coverPreview && <img src={coverPreview} alt="cover preview" style={{ width: "100%", borderRadius: 6, border: "1px solid rgba(255,255,255,0.1)" }} />}
+              {stegoPreview && <img src={stegoPreview} alt="stego preview" style={{ width: "100%", borderRadius: 6, border: "1px solid rgba(255,255,255,0.1)" }} />}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -4837,8 +4892,25 @@ export default function App() {
                           </div>
 
                           <div style={{ fontSize: 9, color: "#ffffff70", marginBottom: 6 }}>
-                            Confidence: {aiDetectResult.stego_probability >= 0.75 ? "High" : aiDetectResult.stego_probability >= 0.5 ? "Moderate" : "Low"}
+                            Confidence: {aiDetectResult.confidence || (aiDetectResult.stego_probability >= 0.75 ? "High" : aiDetectResult.stego_probability >= 0.5 ? "Moderate" : "Low")}
                           </div>
+
+                          {aiDetectResult.metrics && (
+                            <div style={{ fontSize: 8.5, color: "#ffffff50", marginBottom: 6 }}>
+                              Precision {aiDetectResult.metrics.precision?.toFixed(2)} • Recall {aiDetectResult.metrics.recall?.toFixed(2)} • ROC-AUC {aiDetectResult.metrics.roc_auc?.toFixed(2)}
+                            </div>
+                          )}
+
+                          {aiDetectResult.explanation && aiDetectResult.explanation.length > 0 && (
+                            <div style={{ fontSize: 8.5, color: "#ffffff70", marginBottom: 8 }}>
+                              <div style={{ marginBottom: 4, color: "#00c8dc" }}>Why it was flagged</div>
+                              <ul style={{ margin: 0, paddingLeft: 14 }}>
+                                {aiDetectResult.explanation.map((item) => (
+                                  <li key={item} style={{ marginBottom: 2 }}>{item}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
 
                           <div style={{ fontSize: 9, color: "#ffffff50", marginBottom: 8 }}>
                             Local detector verdict based on statistical LSB and texture features.
