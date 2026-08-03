@@ -56,6 +56,18 @@ def _env_flag(name: str, default: str = "false") -> bool:
 def _parse_origins(raw_value: str) -> list[str]:
     return [item.strip() for item in raw_value.split(",") if item.strip()]
 
+
+def _validate_bit_depth(bit_depth: int) -> tuple[bool, str | None]:
+    if bit_depth not in (1, 2, 3):
+        return False, "bit_depth must be 1, 2, or 3."
+    return True, None
+
+
+def _validate_symmetric_mode(symmetric_mode: str) -> tuple[bool, str | None]:
+    if symmetric_mode not in {"AES-256-GCM", "AES-256-CBC"}:
+        return False, "symmetric_mode must be AES-256-GCM or AES-256-CBC."
+    return True, None
+
 # ─── App Setup ────────────────────────────────────────────────────────────────
 frontend_dist = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'pqcsecure-frontend', 'dist'))
 app = Flask(__name__, static_folder=frontend_dist, static_url_path="")
@@ -201,6 +213,14 @@ def encrypt_embed():
         symmetric_mode = request.form.get("symmetric_mode", "AES-256-GCM").strip()
         bit_depth      = int(request.form.get("bit_depth", 1))
 
+        is_valid_bit_depth, bit_depth_error = _validate_bit_depth(bit_depth)
+        if not is_valid_bit_depth:
+            return jsonify({"error": bit_depth_error}), 400
+
+        is_valid_mode, mode_error = _validate_symmetric_mode(symmetric_mode)
+        if not is_valid_mode:
+            return jsonify({"error": mode_error}), 400
+
         session_data = _get_session(session_id)
         if session_data is None:
             return jsonify({"error": "Invalid session_id — generate keys first."}), 400
@@ -308,6 +328,14 @@ def extract_decrypt():
         symmetric_mode = request.form.get("symmetric_mode", "AES-256-GCM").strip()
         bit_depth      = int(request.form.get("bit_depth", 1))
         tamper_mode    = request.form.get("tamper_mode", "none").strip()
+
+        is_valid_bit_depth, bit_depth_error = _validate_bit_depth(bit_depth)
+        if not is_valid_bit_depth:
+            return jsonify({"error": bit_depth_error}), 400
+
+        is_valid_mode, mode_error = _validate_symmetric_mode(symmetric_mode)
+        if not is_valid_mode:
+            return jsonify({"error": mode_error}), 400
 
         session_data = _get_session(session_id)
         if session_data is None:

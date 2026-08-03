@@ -2879,13 +2879,13 @@ export default function App() {
 
           <div style={{ fontSize: 18, fontWeight: 700, letterSpacing: 1 }}>
 
-            PQ-SECURE TRANSMISSION
+            PQCSecure — Post-Quantum Stego Transmission Demo
 
           </div>
 
           <div style={{ fontSize: 11, color: "#00c8dc99", letterSpacing: 2 }}>
 
-            ML-KEM-768 · AES-256-GCM · LSB STEGANOGRAPHY
+            ML-KEM-768 · AES-256-GCM · Adaptive LSB Steganography
 
           </div>
 
@@ -3366,6 +3366,50 @@ export default function App() {
             </div>
 
           )}
+
+          <div
+
+            style={{
+
+              background: "rgba(0,20,38,0.85)",
+
+              border: "1px solid rgba(0,200,220,0.18)",
+
+              borderRadius: 12,
+
+              padding: "1rem 1.2rem",
+
+              display: "grid",
+
+              gap: 10,
+
+            }}
+
+          >
+
+            <div style={{ fontSize: 11, color: "#00c8dc", letterSpacing: 2, fontWeight: "bold" }}>
+
+              DEMO STORY: HOW TO READ THIS FLOW
+
+            </div>
+
+            <div style={{ fontSize: 12, color: "#d8e5f2", lineHeight: 1.55 }}>
+
+              This demo shows a sender generating a post-quantum keypair, encapsulating a shared secret, encrypting a message, and hiding the resulting payload inside a cover image.
+              The image then travels through the channel, and the receiver extracts, decapsulates, and verifies the original message.
+            </div>
+
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+
+              <Badge text="Sender: keygen → encapsulate → encrypt → embed" color="cyan" />
+
+              <Badge text="Channel: stego-image transport" color="amber" />
+
+              <Badge text="Receiver: extract → decapsulate → decrypt" color="purple" />
+
+            </div>
+
+          </div>
 
           {/* Phase 1: Key Generation */}
 

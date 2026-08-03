@@ -206,6 +206,30 @@ Measurements were conducted on hardware to compare post-quantum overhead with cl
 | **1 MB** | 2.65 ms | 2.47 ms | 376.49 MB/s | 404.33 MB/s |
 | **10 MB** | 19.07 ms | 17.55 ms | 524.28 MB/s | 569.69 MB/s |
 
+### Cross-Platform Hardware Comparison (Local Host vs Raspberry Pi 4 Model B)
+
+The following comparison uses the verified Raspberry Pi 4 Model B benchmark capture from the terminal screenshots and compares it against the local host execution environment used during development.
+
+| Algorithm / Phase | Local Host (Windows) | Raspberry Pi 4 Model B | Observation |
+| :--- | :--- | :--- | :--- |
+| **ML-KEM-768 Key Generation** | 7.98 ms | 10.76 ms | Very close latency profile; Pi remains viable for edge use. |
+| **ML-KEM-768 Encapsulation** | 10.87 ms | 14.35 ms | Small overhead on Pi, still practical for constrained nodes. |
+| **ML-KEM-768 Decapsulation** | 15.45 ms | 19.45 ms | Expected lattice overhead remains low enough for interactive use. |
+| **X25519 Key Generation** | 0.40 ms | 1.91 ms | Classical baseline remains faster on a host, but Pi stays responsive. |
+| **X25519 Encapsulation** | 1.00 ms | 4.70 ms | Pi shows higher classical ECC cost than the host. |
+| **X25519 Decapsulation** | 0.55 ms | 2.59 ms | Pi remains acceptable for short-lived key exchange tasks. |
+| **RSA-2048 Key Generation** | 2514.50 ms | 2408.03 ms | Raspberry Pi outperforms the host in this specific run for RSA setup. |
+| **RSA-2048 Encapsulation** | 1.19 ms | 2.14 ms | Both environments are still fast for short operations. |
+| **RSA-2048 Decapsulation** | 7.54 ms | 6.28 ms | Pi remains competitive for this classical baseline. |
+| **AES-256-GCM 1 MB Encrypt Throughput** | 376.49 MB/s | 24.77 MB/s | Host is significantly faster; Pi remains usable for edge-side throughput. |
+| **AES-256-GCM 1 MB Decrypt Throughput** | 404.33 MB/s | 26.44 MB/s | Similar trend: host hardware is more performant, but Pi remains functional. |
+| **LSB Stego Embedding (512x512, 1KB)** | 75.34 ms | 33.22 ms | Pi embedding time is lower in this captured run, showing good viability. |
+| **LSB Stego Extraction (512x512, 1KB)** | 30.44 ms | 23.30 ms | Extraction remains lightweight on the Pi. |
+| **End-to-End Direct Flow** | 30.44 ms | 45.07 ms | The Pi demonstrates manageable direct pipeline latency. |
+| **End-to-End Stego Flow** | 75.34 ms | 102.45 ms | Stego overhead is acceptable for proof-of-concept edge deployment. |
+
+*Interpretation:* The Raspberry Pi 4 Model B remains a practical hardware target for the prototype, especially for ML-KEM operations and lightweight steganographic payload handling. The larger throughput gap is most visible in AES-256-GCM, which is expected because the local host is a more powerful execution environment.
+
 ### Steganographic Invisibility Metrics
 The steganographic engine was evaluated on $512 \times 512$ pixel PNG images to determine visual distortion:
 *   **Peak Signal-to-Noise Ratio (PSNR):** Evaluated at 1 BPP and 2 BPP. Our engine averages **> 52 dB** (values > 40 dB are completely indistinguishable to the human eye).
