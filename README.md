@@ -116,3 +116,5 @@ The high-level flow is:
 - Frontend code lives under `pqcsecure-frontend/src/`.
 - Benchmark and measurement artifacts are commonly generated under `pi_benchmark/` and the backend working directory.
 - The repository-level `.gitignore` is intended to keep generated artifacts, local environment files, and model/output files out of version control.
+
+C:/Users/anilk/AppData/Local/Programs/Python/Python312/python.exe c:\Users\anilk\OneDrive\Desktop\pqc-1\pqcsecure-backend\app.py

@@ -2655,6 +2655,11 @@ export default function App() {
 
       }
 
+      // if backend returned capacities and payload, compute capacity percent
+      if (data.payload_bytes && data.recommended_capacity_bytes) {
+        // nothing here for now; UI uses aiOptimizeResult directly
+      }
+
     } catch (e) {
 
       setError(e.message);
@@ -2706,6 +2711,32 @@ export default function App() {
   }
 
   // ── Phase 1: Key Generation ──────────────────────────────────────────────
+
+  function handleShortenMessage() {
+    if (!aiOptimizeResult) return;
+    const cap = aiOptimizeResult.recommended_capacity_bytes || 0;
+    const breakdown = aiOptimizeResult.breakdown || {};
+    const fixed = (breakdown.header_bytes || 0) + (breakdown.kem_ct_len || 0) + (breakdown.gcm_overhead || 0);
+    const allowed = Math.max(0, cap - fixed);
+    if (allowed <= 0) {
+      setError('No room for message in this cover at the recommended depth.');
+      return;
+    }
+    // trim the message bytes to allowed (roughly by characters)
+    const encoder = new TextEncoder();
+    let enc = encoder.encode(message || '');
+    if (enc.length <= allowed) return; // nothing to do
+    // trim characters until fits
+    let trimmed = message;
+    while (encoder.encode(trimmed).length > allowed && trimmed.length > 0) {
+      trimmed = trimmed.slice(0, -1);
+    }
+    setMessage(trimmed);
+  }
+
+  function handleIncreaseBPP() {
+    setBitDepth(prev => Math.min(3, prev + 1));
+  }
 
   async function handleKeygen() {
 
@@ -4113,14 +4144,49 @@ export default function App() {
 
                             </div>
 
-                            {!aiOptimizeResult.payload_fits ? (
+                            {/* Payload breakdown and capacity */}
+                            {aiOptimizeResult.breakdown ? (
+                              <div style={{ marginTop: 8, fontSize: 11, color: "#cfe8ea" }}>
+                                <div>Payload breakdown:</div>
+                                <div style={{ color: "#ffffff60", fontSize: 10 }}>
+                                  Header: {aiOptimizeResult.breakdown.header_bytes} B • KEM: {aiOptimizeResult.breakdown.kem_ct_len} B • GCM: {aiOptimizeResult.breakdown.gcm_overhead} B • Message: {aiOptimizeResult.breakdown.message_bytes} B
+                                </div>
 
-                              <div style={{ marginTop: 8, padding: 8, borderRadius: 6, background: "rgba(255, 64, 64, 0.12)", color: "#ff8f8f" }}>
+                                <div style={{ marginTop: 6 }}>
+                                  <div style={{ height: 10, width: "100%", background: "rgba(255,255,255,0.06)", borderRadius: 6 }}>
+                                    <div style={{ height: "100%", width: `${Math.min(100, Math.round((aiOptimizeResult.payload_bytes / Math.max(1, aiOptimizeResult.recommended_capacity_bytes)) * 100))}%`, background: "linear-gradient(90deg,#00dc8c,#00c8dc)", borderRadius: 6 }} />
+                                  </div>
+                                  <div style={{ fontSize: 10, color: "#ffffff60", marginTop: 4 }}>
+                                    Capacity: {aiOptimizeResult.recommended_capacity_bytes} B • Using {aiOptimizeResult.payload_bytes} B • {(aiOptimizeResult.recommended_capacity_bytes>0)?Math.round((aiOptimizeResult.payload_bytes/aiOptimizeResult.recommended_capacity_bytes)*100):0}%
+                                  </div>
+                                </div>
 
-                                Warning: the current message is too large for this cover image. Reduce the message length or choose a larger image.
+                                {!aiOptimizeResult.payload_fits ? (
+                                  <div style={{ marginTop: 8, padding: 8, borderRadius: 6, background: "rgba(255, 64, 64, 0.12)", color: "#ff8f8f" }}>
+                                    Warning: the current message is too large for this cover image. Reduce the message length or choose a larger image.
+                                  </div>
+                                ) : null}
 
+                                <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
+                                  <button type="button" onClick={() => handleShortenMessage()} style={{ padding: "4px 8px", fontSize: 11 }}>Shorten message</button>
+                                  <button type="button" onClick={() => fileRef.current?.click()} style={{ padding: "4px 8px", fontSize: 11 }}>Choose larger image</button>
+                                  <button type="button" onClick={() => handleIncreaseBPP()} style={{ padding: "4px 8px", fontSize: 11 }}>Increase BPP (manual)</button>
+                                </div>
+
+                                {aiOptimizeResult.detectability ? (
+                                  <div style={{ marginTop: 8 }}>
+                                    <div style={{ color: "#ffffff60", fontSize: 10 }}>Estimated detectability per depth:</div>
+                                    <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                                      {[1,2,3].map(d => (
+                                        <div key={d} style={{ fontSize: 10, color: "#e8f7f8" }}>
+                                          <div style={{ color: "#ffffff60" }}>Depth {d}:</div>
+                                          <div>{(aiOptimizeResult.detectability[d]===null)?"n/a":(Math.round(aiOptimizeResult.detectability[d]*1000)/10)+"%"}</div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                ) : null}
                               </div>
-
                             ) : null}
 
                             {aiOptimizeResult.recommended_ai_parameters ? (

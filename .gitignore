@@ -3,6 +3,8 @@
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
+*.pyo
+*.pyd
 *$py.class
 
 # Virtual environments
@@ -10,6 +12,7 @@ __pycache__/
 venv/
 env/
 ENV/
+.venv312/
 
 # Python distribution / packaging
 build/
@@ -23,12 +26,14 @@ pip-wheel-metadata/
 .coverage
 htmlcov/
 
-# Type checkers / caches
+# Type checker / cache directories
 .mypy_cache/
+.pyre/
 
 # Local environment variables
 .env
 .env.*
+!.env.example
 instance/
 
 # Logs
@@ -47,6 +52,8 @@ node_modules/
 dist/
 build/
 .cache/
+.npm/
+.vite/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -56,59 +63,20 @@ yarn-error.log*
 .DS_Store
 Thumbs.db
 desktop.ini
+~$*
 
 # Ignore generated model/dataset artifacts to avoid committing large binaries
 # (untrack explicitly if already committed)
 /pqcsecure-backend/*.pkl
 /pqcsecure-backend/*.meta.json
 /pqcsecure-backend/stego_*.pkl
-
-# OneDrive temp files
-~$*
-# Python
-__pycache__/
-*.py[cod]
-*.pyo
-*.pyd
-*.egg-info/
-.venv/
-venv/
-env/
-
-.venv312
-.pytest_cache/
-.mypy_cache/
-.pyre/
-
-# Environment files
-.env
-.env.*
-!.env.example
+*.histogram_recovered
 
 # Project-specific generated artifacts
 final-project.pptx
 recovered_dashboard_full.txt
 sample.png
-*.pkl
-*.meta.json
-*.histogram_recovered
 pi_benchmark/
-pqcsecure-backend/run_benchmarks_quick.py
-pqcsecure-backend/stego_ai.py
-pqcsecure-backend/tests/test_stego_ai.py
 
-# Node / frontend
-node_modules/
-dist/
-build/
-.npm/
-.vite/
-
-# Logs
-*.log
-
-# OS / editor files
-.DS_Store
-Thumbs.db
-.vscode/
-.idea/
+# Keep source files tracked
+# Do not ignore actual backend source or tests
