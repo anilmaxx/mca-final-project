@@ -656,6 +656,107 @@ function StegoHistogramChart({ coverHist, stegoHist }) {
   );
 }
 
+function ImageComparePanel({ API, safeJsonResponse }) {
+  const [coverFile, setCoverFile] = useState(null);
+  const [stegoFile, setStegoFile] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [result, setResult] = useState(null);
+  const [trainStatus, setTrainStatus] = useState(null);
+  const [training, setTraining] = useState(false);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!coverFile || !stegoFile) {
+      setError("Please choose both a cover image and a stego image.");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    try {
+      const formData = new FormData();
+      formData.append("cover_image", coverFile);
+      formData.append("stego_image", stegoFile);
+
+      const res = await fetch(`${API}/ai-compare`, {
+        method: "POST",
+        body: formData,
+      });
+      const json = await safeJsonResponse(res);
+      if (json.error) {
+        throw new Error(json.error);
+      }
+      setResult(json);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleTrain() {
+    setTraining(true);
+    setTrainStatus(null);
+    try {
+      const formData = new FormData();
+      formData.append("force", "true");
+      const res = await fetch(`${API}/ai-train`, {
+        method: "POST",
+        body: formData,
+      });
+      const json = await safeJsonResponse(res);
+      if (json.error) {
+        throw new Error(json.error);
+      }
+      setTrainStatus(json);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setTraining(false);
+    }
+  }
+
+  return (
+    <div style={{ background: "rgba(0,10,20,0.35)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 10, padding: 16 }}>
+      <div style={{ fontSize: 11, fontWeight: "bold", color: "#00c8dc", marginBottom: 10 }}>
+        🧪 Upload Cover + Stego Images for AI Comparison and Training
+      </div>
+      <form onSubmit={handleSubmit} style={{ display: "grid", gap: 10 }}>
+        <input type="file" accept="image/*" onChange={(e) => setCoverFile(e.target.files?.[0] || null)} />
+        <input type="file" accept="image/*" onChange={(e) => setStegoFile(e.target.files?.[0] || null)} />
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button type="submit" disabled={loading} style={{ padding: "8px 12px", borderRadius: 6, background: "#00c8dc", color: "#07111f", fontWeight: 700 }}>
+            {loading ? "Checking..." : "Check Images"}
+          </button>
+          <button type="button" disabled={training} onClick={handleTrain} style={{ padding: "8px 12px", borderRadius: 6, background: "#3b82f6", color: "#fff", fontWeight: 700 }}>
+            {training ? "Training..." : "Train Optimizer"}
+          </button>
+        </div>
+      </form>
+      {error && <div style={{ color: "#ff8c8c", marginTop: 8 }}>{error}</div>}
+      {trainStatus && (
+        <div style={{ marginTop: 10, color: "#d7f7ff" }}>
+          <strong>Optimizer trained:</strong> {JSON.stringify(trainStatus.best_params)}
+        </div>
+      )}
+      {result && (
+        <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
+          <div style={{ color: "#d7f7ff" }}>
+            <strong>Cover probability:</strong> {result.cover.stego_probability} ({result.cover.is_stego ? "stego-like" : "clean-like"})
+          </div>
+          <div style={{ color: "#d7f7ff" }}>
+            <strong>Stego probability:</strong> {result.stego.stego_probability} ({result.stego.is_stego ? "stego-like" : "clean-like"})
+          </div>
+          <div style={{ color: "#00dc8c" }}>
+            <strong>Comparison verdict:</strong> {result.comparison.verdict} (difference {result.comparison.difference})
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Benchmarks({ API, safeJsonResponse }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -3957,6 +4058,20 @@ export default function App() {
 
                             </div>
 
+                            {aiOptimizeResult.recommended_ai_parameters ? (
+
+                              <div style={{ color: "#ffffff60", marginTop: 4 }}>
+
+                                Optimizer Params: <span style={{ color: "#e0e8f0" }}>
+
+                                  {Object.entries(aiOptimizeResult.recommended_ai_parameters).map(([key, value]) => `${key}=${value}`).join(" | ")}
+
+                                </span>
+
+                              </div>
+
+                            ) : null}
+
                           </div>
 
                         ) : (
@@ -4697,7 +4812,7 @@ export default function App() {
 
                                   height: "100%", 
 
-                                  width: `${aiDetectResult.stego_probability * 100}%`, 
+                                  width: `${Math.max(6, Math.min(100, aiDetectResult.stego_probability * 100))}%`, 
 
                                   background: aiDetectResult.is_stego ? "linear-gradient(90deg, #e53e3e, #f56565)" : "linear-gradient(90deg, #48bb78, #38a169)" 
 
@@ -4719,6 +4834,14 @@ export default function App() {
 
                             STATUS: {aiDetectResult.is_stego ? "⚠️ PAYLOAD DETECTED" : "✅ CLEAN IMAGE"}
 
+                          </div>
+
+                          <div style={{ fontSize: 9, color: "#ffffff70", marginBottom: 6 }}>
+                            Confidence: {aiDetectResult.stego_probability >= 0.75 ? "High" : aiDetectResult.stego_probability >= 0.5 ? "Moderate" : "Low"}
+                          </div>
+
+                          <div style={{ fontSize: 9, color: "#ffffff50", marginBottom: 8 }}>
+                            Local detector verdict based on statistical LSB and texture features.
                           </div>
 
                           <details style={{ outline: "none", cursor: "pointer" }}>
@@ -4749,7 +4872,7 @@ export default function App() {
 
                         <div style={{ fontSize: 9, color: "#ffffff40" }}>
 
-                          Inspect the image using the local Random Forest model to check for LSB payloads.
+                          Inspect the image using the local detector to check for LSB payloads.
 
                         </div>
 
@@ -5005,7 +5128,10 @@ export default function App() {
 
           ) : (
 
-            <Benchmarks API={API} safeJsonResponse={safeJsonResponse} />
+            <div style={{ display: "grid", gap: 16 }}>
+              <ImageComparePanel API={API} safeJsonResponse={safeJsonResponse} />
+              <Benchmarks API={API} safeJsonResponse={safeJsonResponse} />
+            </div>
 
           )}
 

@@ -531,16 +531,11 @@ def ai_detect():
         prob = stego_ai.predict_stego(img)
         features = stego_ai.extract_stego_features(img)
         
-        # Format features for response display
-        feature_names = [
-            "Unique Color Ratio", 
-            "Chi-Square Probability", 
-            "Parity Bin Asymmetry", 
-            "Horizontal Difference Mean", 
-            "Horizontal Difference Variance", 
-            "Laplacian Variance (Sharpness)"
-        ]
-        feature_dict = {name: round(val, 5) for name, val in zip(feature_names, features)}
+        # Format features for response display.
+        feature_dict = {
+            name: round(value, 5)
+            for name, value in zip(stego_ai.FEATURE_NAMES, features)
+        }
         
         return jsonify({
             "stego_probability": round(prob, 4),
@@ -549,6 +544,66 @@ def ai_detect():
         })
     except Exception as exc:
         logger.exception("AI Detect failed")
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/ai-compare", methods=["POST"])
+def ai_compare():
+    """Compare a cover image and a stego image using the local AI detector."""
+    try:
+        cover_file = request.files.get("cover_image")
+        stego_file = request.files.get("stego_image")
+        if not cover_file or not stego_file:
+            return jsonify({"error": "Both cover_image and stego_image are required."}), 400
+
+        cover_img = Image.open(cover_file)
+        stego_img = Image.open(stego_file)
+
+        cover_prob = stego_ai.predict_stego(cover_img)
+        stego_prob = stego_ai.predict_stego(stego_img)
+
+        cover_features = stego_ai.extract_stego_features(cover_img)
+        stego_features = stego_ai.extract_stego_features(stego_img)
+
+        difference = round(max(0.0, stego_prob - cover_prob), 4)
+
+        return jsonify({
+            "cover": {
+                "stego_probability": round(cover_prob, 4),
+                "is_stego": bool(cover_prob > 0.5),
+                "features": cover_features,
+            },
+            "stego": {
+                "stego_probability": round(stego_prob, 4),
+                "is_stego": bool(stego_prob > 0.5),
+                "features": stego_features,
+            },
+            "comparison": {
+                "difference": difference,
+                "verdict": "stego-like" if difference > 0.1 else "similar",
+            },
+        })
+    except Exception as exc:
+        logger.exception("AI Compare failed")
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/ai-train", methods=["POST"])
+def ai_train():
+    """Train or retrain the local AI detector model and return the resulting parameters."""
+    try:
+        force = request.form.get("force", "false").strip().lower() in {"1", "true", "yes", "on"}
+        stego_ai.init_model(force_train=force)
+        X, y = stego_ai._generate_synthetic_dataset()
+        best_params = stego_ai.optimize_model_parameters(X, y)
+        return jsonify({
+            "status": "trained",
+            "force_retrained": force,
+            "best_params": best_params,
+            "model_path": stego_ai.MODEL_PATH,
+        })
+    except Exception as exc:
+        logger.exception("AI Train failed")
         return jsonify({"error": str(exc)}), 500
 
 
