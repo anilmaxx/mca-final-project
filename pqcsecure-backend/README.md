@@ -4,8 +4,8 @@ This directory contains the Flask backend for the PQCSecure demo application.
 
 ## What it provides
 - Key generation for ML-KEM-768, RSA-2048, and X25519
-- AES-based encryption and decryption
-- LSB image steganography embedding and extraction
+- AES-256-GCM authenticated encryption and decryption
+- LSB image steganography embedding and extraction with lossless image enforcement
 - Benchmarks and steganalysis metrics
 
 ## Setup
@@ -37,6 +37,7 @@ Copy [.env.example](.env.example) to .env and set values such as:
 - REQUIRE_HTTPS
 - EXPOSE_PRIVATE_KEY
 - SESSION_TTL_SECONDS
+- STEGO_DATASET_DIR  # optional local path to a cover/stego dataset directory for model training
 
 ## Testing
 ```bash

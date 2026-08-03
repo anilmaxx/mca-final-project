@@ -76,7 +76,7 @@ sequenceDiagram
 
 ## 4. Cryptographic Layer Specifications
 
-PQCSecure supports three key exchange algorithms (ML-KEM-768, X25519, and RSA-2048) and two symmetric encryption modes (AES-256-GCM and AES-256-CBC).
+PQCSecure supports three key exchange algorithms (ML-KEM-768, X25519, and RSA-2048) and one authenticated symmetric encryption mode (AES-256-GCM).
 
 ### Key Encapsulation Mechanisms (KEM)
 1.  **ML-KEM-768 (Lattice-Based):** Standardized under FIPS 203 (derived from CRYSTALS-Kyber). It relies on the hardness of the Module Learning With Errors (M-LWE) problem. Operates at NIST Category 3 security (equivalent to AES-192).
@@ -91,7 +91,7 @@ PQCSecure supports three key exchange algorithms (ML-KEM-768, X25519, and RSA-20
 
 ### Symmetric Encryption
 *   **AES-256-GCM (Recommended):** Authenticated Encryption with Associated Data (AEAD). Protects confidentiality and integrity. Uses a 12-byte random initialization vector (IV) and outputs a 16-byte authentication tag.
-*   **AES-256-CBC:** Legacy block cipher mode. Uses a 16-byte IV and PKCS#7 padding. Requires a secure MAC if integrity is required.
+*   **AES-256-CBC:** Legacy block cipher mode that is no longer supported by the current backend; AES-256-GCM is enforced for all payload encryption.
 
 ### Binary Payload Packing Schema
 To transport the required cryptographic variables in a single image channel, the backend packs components into a contiguous binary stream with a **10-byte dynamic header**:

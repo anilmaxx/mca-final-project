@@ -1588,7 +1588,6 @@ function StegoPlayground({
       setEmbedResult({
         ...embedData,
         session_id: keygenData.session_id,
-        private_key_pem: keygenData.private_key_pem,
         keygen_time_ms: keygenData.keygen_time_ms,
         cover_preview_url: selectedStyle === "Custom" ? customPreview : `${API}/sample-cover?style=${selectedStyle}&t=${Date.now()}`
       });
@@ -1848,7 +1847,6 @@ function StegoPlayground({
                   }}
                 >
                   <option value="AES-256-GCM">AES-256-GCM (Authenticated)</option>
-                  <option value="AES-256-CBC">AES-256-CBC (Unauthenticated)</option>
                 </select>
               </div>
             </div>
@@ -2059,9 +2057,9 @@ function StegoPlayground({
           {/* Decryption & Tampering Setup */}
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             <div>
-              <label style={{ fontSize: 10, color: "#ffffff60", display: "block", marginBottom: 6 }}>GENERATED KEM PRIVATE KEY (DECAPSULATION KEY)</label>
+              <label style={{ fontSize: 10, color: "#ffffff60", display: "block", marginBottom: 6 }}>SESSION METADATA</label>
               <textarea
-                value={embedResult ? embedResult.private_key_pem : "Private key will be displayed after embedding..."}
+                value={embedResult ? `Session ID: ${embedResult.session_id}\nKeygen time: ${embedResult.keygen_time_ms} ms` : "Session metadata will be displayed after embedding..."}
                 readOnly
                 rows={5}
                 style={{
@@ -2640,6 +2638,8 @@ export default function App() {
       const form = new FormData();
 
       form.append("image", image);
+      form.append("message", message);
+      form.append("kem_algo", kemAlgo);
 
       const res = await fetch(`${API}/ai-optimize`, { method: "POST", body: form });
 
@@ -4113,6 +4113,16 @@ export default function App() {
 
                             </div>
 
+                            {!aiOptimizeResult.payload_fits ? (
+
+                              <div style={{ marginTop: 8, padding: 8, borderRadius: 6, background: "rgba(255, 64, 64, 0.12)", color: "#ff8f8f" }}>
+
+                                Warning: the current message is too large for this cover image. Reduce the message length or choose a larger image.
+
+                              </div>
+
+                            ) : null}
+
                             {aiOptimizeResult.recommended_ai_parameters ? (
 
                               <div style={{ color: "#ffffff60", marginTop: 4 }}>
@@ -4244,8 +4254,6 @@ export default function App() {
                       >
 
                         <option value="AES-256-GCM">AES-256-GCM (Authenticated)</option>
-
-                        <option value="AES-256-CBC">AES-256-CBC (Unauthenticated)</option>
 
                       </select>
 

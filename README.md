@@ -17,7 +17,7 @@ This workspace is organized into three main parts:
 ## Core capabilities
 
 - Quantum-safe key exchange using ML-KEM-768, with classical baselines such as X25519 and RSA-2048.
-- Symmetric encryption using AES-256-GCM and AES-256-CBC workflows.
+- Symmetric encryption using AES-256-GCM authenticated encryption.
 - Adaptive steganography that embeds payloads into high-texture image regions.
 - Local image-analysis and stego-detection utilities for receiver-side validation.
 - Benchmarking and speed-test tooling for evaluating implementation behavior.
@@ -100,6 +100,11 @@ The high-level flow is:
 
 - Use lossless image formats such as PNG or BMP for correct extraction.
 - Avoid sending JPEGs for embedded payload transport because lossy compression can alter the stego bits.
+- The backend rejects JPEG uploads for embedding and extraction, enforcing lossless carriers only.
+- Symmetric encryption is fixed to AES-256-GCM; AES-CBC is no longer supported.
+- The backend stores ephemeral session state with TTL-backed session IDs and supports optional API key / HTTPS enforcement.
+- The API never returns private key material in responses.
+- Optional model training data can be supplied via `STEGO_DATASET_DIR` for real cover/stego corpus support.
 - Validate input capacity and header integrity before attempting extraction and decryption.
 - Keep deployment secrets out of source control by using environment variables and a local `.env` file.
 

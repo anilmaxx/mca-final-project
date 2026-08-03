@@ -46,7 +46,8 @@ It provides:
 - an interactive UI
 - dashboards for steganalysis features
 - architecture visualization
-- user-friendly experimentation""" tools
+- user-friendly experimentation tools
+- a message-aware AI optimizer that recommends LSB depth and warns when a payload is too large for the selected cover image
 
 ### 5.3 Benchmarking Suite
 The benchmark suite is focused on performance evaluation and hardware viability, especially on edge devices such as Raspberry Pi 4.
@@ -83,7 +84,6 @@ These classical options are included to compare performance and overhead against
 
 ### 7.3 Symmetric Encryption
 - AES-256-GCM (recommended)
-- AES-256-CBC (legacy comparison mode)
 
 AES-256-GCM is preferred because it provides confidentiality and integrity together.
 
@@ -109,6 +109,15 @@ The system supports configurable bit depths:
 - 2 BPP
 - 3 BPP
 
+### 8.4 Operational Security & Dataset Support
+The backend enforces a hardened operational model:
+- Only AES-256-GCM authenticated encryption is used for payload confidentiality and integrity.
+- The system rejects lossy JPEG uploads for embedding or extraction and requires lossless carriers such as PNG, BMP, or TIFF.
+- Session state is maintained in-memory with time-limited session IDs, and the backend can optionally require API key authentication and HTTPS for protected routes.
+- The API does not expose private key material to clients.
+- Realistic detector training can use a local standard dataset path via `STEGO_DATASET_DIR`, where paired `cover/` and `stego/` images are loaded if available. Synthetic cover/stego pairs remain the fallback.
+- The AI optimizer now evaluates the current message and image together and warns when the payload exceeds the selected cover's capacity.
+
 This allows trade-offs between payload capacity and visual stealth.
 
 ## 9. Steganalysis Support
@@ -127,6 +136,9 @@ The model uses image-derived features to classify whether a cover image is likel
 - Laplacian variance
 
 This gives the system a dual-defense mechanism: one statistical and one machine-learning-driven.
+
+### 9.3 Payload-Aware Embedding Recommendation
+The AI optimizer also considers the current plaintext message length and the cover image capacity. It recommends the safest bit depth and issues a warning if the payload is too large to embed reliably, helping users avoid failed or overly suspicious stego attempts.
 
 ## 10. Features Summary
 The main features of the project are:
@@ -147,6 +159,7 @@ The main features of the project are:
 - Chi-square steganalysis
 - Random Forest stego detection
 - Image quality and risk feedback
+- Payload-fit recommendation and cover capacity warning for message-aware steganography
 
 ### Benchmarking Features
 - Algorithm comparison

@@ -1,3 +1,70 @@
+# PQCSecure: recommended git ignore
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Python distribution / packaging
+build/
+dist/
+*.egg-info/
+pip-wheel-metadata/
+*.whl
+
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Type checkers / caches
+.mypy_cache/
+
+# Local environment variables
+.env
+.env.*
+instance/
+
+# Logs
+*.log
+
+# Editor directories and files
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# Node / frontend
+node_modules/
+dist/
+build/
+.cache/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnp.*
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Ignore generated model/dataset artifacts to avoid committing large binaries
+# (untrack explicitly if already committed)
+/pqcsecure-backend/*.pkl
+/pqcsecure-backend/*.meta.json
+/pqcsecure-backend/stego_*.pkl
+
+# OneDrive temp files
+~$*
 # Python
 __pycache__/
 *.py[cod]

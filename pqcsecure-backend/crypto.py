@@ -9,7 +9,6 @@ Algorithms
                 RSA-2048 via pycryptodome (Classical Baseline)
                 X25519 (ECDH) via pycryptodome (Classical Ephemeral Baseline)
 - Phase 3 / 7 : AES-256-GCM (authenticated encryption)
-                AES-256-CBC (unauthenticated encryption)
 """
 
 import struct
@@ -109,13 +108,13 @@ def decapsulate(dk: bytes, ciphertext: bytes, algorithm: str = "ML-KEM-768") -> 
 
 def aes_encrypt(key: bytes, plaintext: bytes, mode: str = "AES-256-GCM") -> tuple[bytes, bytes, bytes]:
     """
-    Encrypt plaintext with AES-256 under GCM or CBC mode.
+    Encrypt plaintext with AES-256-GCM.
 
     Returns
     -------
     (iv, auth_tag, ciphertext)
-        iv        : IV bytes (12 for GCM, 16 for CBC)
-        auth_tag  : Tag bytes (16 for GCM, empty for CBC)
+        iv        : IV bytes (12 bytes)
+        auth_tag  : Tag bytes (16 bytes)
         ciphertext: Encrypted message bytes
     """
     if mode == "AES-256-GCM":
@@ -123,12 +122,6 @@ def aes_encrypt(key: bytes, plaintext: bytes, mode: str = "AES-256-GCM") -> tupl
         cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
         ciphertext, auth_tag = cipher.encrypt_and_digest(plaintext)
         return iv, auth_tag, ciphertext
-    elif mode == "AES-256-CBC":
-        from Crypto.Util.Padding import pad
-        iv = get_random_bytes(16)
-        cipher = AES.new(key, AES.MODE_CBC, iv=iv)
-        ciphertext = cipher.encrypt(pad(plaintext, AES.block_size))
-        return iv, bytes(), ciphertext
     else:
         raise ValueError(f"Unsupported symmetric mode: {mode}")
 
@@ -142,11 +135,6 @@ def aes_decrypt(key: bytes, iv: bytes, auth_tag: bytes, ciphertext: bytes, mode:
     if mode == "AES-256-GCM":
         cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
         return cipher.decrypt_and_verify(ciphertext, auth_tag)
-    elif mode == "AES-256-CBC":
-        from Crypto.Util.Padding import unpad
-        cipher = AES.new(key, AES.MODE_CBC, iv=iv)
-        padded_plaintext = cipher.decrypt(ciphertext)
-        return unpad(padded_plaintext, AES.block_size)
     else:
         raise ValueError(f"Unsupported symmetric mode: {mode}")
 

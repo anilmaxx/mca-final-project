@@ -68,8 +68,46 @@ def _validate_bit_depth(bit_depth: int) -> tuple[bool, str | None]:
 
 
 def _validate_symmetric_mode(symmetric_mode: str) -> tuple[bool, str | None]:
-    if symmetric_mode not in {"AES-256-GCM", "AES-256-CBC"}:
-        return False, "symmetric_mode must be AES-256-GCM or AES-256-CBC."
+    if symmetric_mode not in {"AES-256-GCM"}:
+        return False, "symmetric_mode must be AES-256-GCM."
+    return True, None
+
+
+ALLOWED_LOSSLESS_EXTENSIONS = {".png", ".bmp", ".tif", ".tiff"}
+LOSSLESS_IMAGE_FORMATS = {"PNG", "BMP", "TIFF"}
+
+
+def _file_extension(filename: str) -> str:
+    return Path(filename or "").suffix.lower()
+
+
+def _validate_lossless_image_file(image_file) -> tuple[bool, str | None]:
+    filename = image_file.filename or ""
+    extension = _file_extension(filename)
+    if extension not in ALLOWED_LOSSLESS_EXTENSIONS:
+        return False, (
+            "Unsupported image format. Upload a lossless file type such as PNG, BMP, or TIFF. "
+            "JPEG is not supported for steganographic embedding/extraction."
+        )
+
+    try:
+        image_file.stream.seek(0)
+        img = Image.open(image_file.stream)
+        img_format = img.format
+    except Exception:
+        return False, "Invalid image file."
+    finally:
+        try:
+            image_file.stream.seek(0)
+        except Exception:
+            pass
+
+    if img_format not in LOSSLESS_IMAGE_FORMATS:
+        return False, (
+            "Unsupported image format. Upload a lossless file type such as PNG, BMP, or TIFF. "
+            "JPEG is not supported for steganographic embedding/extraction."
+        )
+
     return True, None
 
 # ─── App Setup ────────────────────────────────────────────────────────────────
@@ -180,7 +218,7 @@ def keygen():
         ek, dk = crypto.generate_keypair(algorithm)
         keygen_time_ms = (time.perf_counter() - t0) * 1000
 
-        session_id = base64.urlsafe_b64encode(get_random_bytes(16)).decode()
+        session_id = base64.urlsafe_b64encode(get_random_bytes(32)).decode()
         _key_store[session_id] = {
             "ek": ek,
             "dk": dk,
@@ -205,13 +243,9 @@ def keygen():
             security_level = "Unknown"
             algo_display = algorithm
 
-        expose_private_key = _env_flag("EXPOSE_PRIVATE_KEY", "false")
-        private_key_pem = crypto.export_private_key_display(dk, algorithm) if expose_private_key else None
-
         return jsonify({
             "session_id":         session_id,
             "public_key_b64":     base64.b64encode(ek).decode(),
-            "private_key_pem":    private_key_pem,
             "public_key_length":  len(ek),
             "private_key_length": len(dk),
             "algorithm":          algo_display,
@@ -253,6 +287,10 @@ def encrypt_embed():
             return jsonify({"error": "Message is empty."}), 400
         if image_file is None:
             return jsonify({"error": "No image file provided."}), 400
+
+        is_image_valid, image_error = _validate_lossless_image_file(image_file)
+        if not is_image_valid:
+            return jsonify({"error": image_error}), 400
 
         stored_algo = session_data["algorithm"]
         if stored_algo != kem_algo:
@@ -368,6 +406,10 @@ def extract_decrypt():
         if stego_file is None:
             return jsonify({"error": "No stego image provided."}), 400
 
+        is_image_valid, image_error = _validate_lossless_image_file(stego_file)
+        if not is_image_valid:
+            return jsonify({"error": image_error}), 400
+
         stored_algo = session_data["algorithm"]
         if stored_algo != kem_algo:
             return jsonify({
@@ -396,10 +438,21 @@ def extract_decrypt():
         t_start_extract = time.perf_counter()
         try:
             header_bytes = steganography.extract(stego_img, crypto.header_size(), bit_depth)
+            if len(header_bytes) != crypto.header_size():
+                raise ValueError("Incomplete payload header.")
+
             kem_ct_len, enc_msg_len, iv_len, tag_len = struct.unpack(">IIBB", header_bytes)
-            
-            # Calculate full payload size
             total_payload = crypto.header_size() + kem_ct_len + iv_len + tag_len + enc_msg_len
+            max_bytes = steganography.max_payload_bytes(stego_img, bit_depth)
+
+            if total_payload <= 0 or total_payload > max_bytes:
+                raise ValueError(
+                    f"Invalid payload header. Expected payload size {total_payload} bytes, "
+                    f"but image capacity is {max_bytes} bytes."
+                )
+            if iv_len != 12 or tag_len != 16:
+                raise ValueError("Unsupported payload format or corrupted header.")
+
             payload = steganography.extract(stego_img, total_payload, bit_depth)
         except (ValueError, struct.error) as err:
             logger.warning("LSB extraction failed: %s", err)
@@ -470,7 +523,7 @@ def extract_decrypt():
             if symmetric_mode == "AES-256-GCM":
                 error_msg = "TAMPER DETECTED: DECRYPTION REJECTED"
             else:
-                error_msg = f"Decryption/Padding Error (CBC is unauthenticated): {str(exc)}"
+                error_msg = f"Decryption failed: {str(exc)}"
 
             return jsonify({
                 "error":              error_msg,
@@ -535,9 +588,12 @@ def ai_optimize():
         image_file = request.files.get("image")
         if not image_file:
             return jsonify({"error": "No image file provided."}), 400
-            
+
+        message = request.form.get("message", "") or ""
+        kem_algo = request.form.get("kem_algo", "ML-KEM-768").strip()
+
         cover_img = Image.open(image_file)
-        analysis = stego_ai.analyze_cover_image(cover_img)
+        analysis = stego_ai.analyze_cover_image(cover_img, message=message, kem_algo=kem_algo)
         return jsonify(analysis)
     except Exception as exc:
         logger.exception("AI Optimize failed")
@@ -680,7 +736,7 @@ def not_found(e):
 def health():
     return jsonify({
         "status":     "ok",
-        "algorithms": ["ML-KEM-768 (FIPS 203)", "RSA-2048", "X25519", "AES-256-GCM", "AES-256-CBC", "LSB Steganography"],
+        "algorithms": ["ML-KEM-768 (FIPS 203)", "RSA-2048", "X25519", "AES-256-GCM", "LSB Steganography"],
         "endpoints":  ["/api/keygen", "/api/encrypt-embed", "/api/extract-decrypt", "/api/sample-cover", "/api/benchmark", "/api/ai-optimize", "/api/ai-detect"],
     })
 
